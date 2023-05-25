@@ -128,3 +128,164 @@ glance image-create --name "cirros" --disk-format qcow2 --container-format bare 
 【练习2】heat模板管理
 使用自己搭建的openstack云平台，在/root目录下编写模板server.yaml，创建名为“m1.flavor”、 ID 为 1234、内存为1024MB、硬盘为20GB、vcpu数量为 1的云主机类型。只会一个用命令创建
 openstack flavor create --id 1 --ram 1024 --disk 10 --vcpu 1 m1.flavor
+17、【实操题】Linux系统调优-脏数据回写（1分）
+Linux系统内存中会存在脏数据，一般系统默认脏数据30秒后会回写磁盘，修改系统配置文件，要求将回写磁盘的时间临时调整为60秒。完成后提交controller节点的用户名、密码和IP地址到答题框。
+          编辑系统配置文件 /etc/sysctl.conf并添加以下行
+          vm.dirty_writeback_centisecs = 6000
+sudo sysctl -p
+
+         
+
+21、【实操题】OpenStack Heat运维：创建容器（1分）
+
+在自行搭建的OpenStack私有云平台上，在/root目录下编写Heat模板create_container.yaml，要求执行yaml文件可以创建名为heat-swift的容器。完成后提交控制节点的用户名、密码和IP地址到答题框。（在提交信息前请准备好yaml模板执行的环境）
+heat_template_version: 2013-05-23
+
+resources:
+  my_container:
+    type: OS::Swift::Container
+    properties:
+      name: heat-swift
+openstack stack create -t /root/create_container.yaml test
+23、【实操题】OpenStack Cinder限速（1分）
+
+在使用Cinder服务的时候，为了减缓来自实例的数据访问速度的减慢，OpenStack Block Storage 支持对卷数据复制带宽的速率限制。请修改cinder后端配置文件将卷复制带宽限制为最高100 MiB/s。完成后提交控制节点的用户名、密码和IP地址到答题框。
+打开 cinder 配置文件 /etc/cinder/cinder.conf
+找到 [DEFAULT] 部分并添加:
+replication_bandwidth_limit = 100MB
+保存并关闭文件。重启 cinder-volume 服务以应用更改。
+systemctl restart openstack-cinder-volume.service
+
+25、【实操题】Redis一主二从三哨兵模式（1分）
+使用提供的OpenStack私有云平台，申请三台CentOS7.9系统的云主机，使用提供的http源，在三个节点自行安装Redis服务并启动，配置Redis的访问需要密码，密码设置为123456。然后将这三个Redis节点配置为Redis的一主二从三哨兵架构，即一个Redis主节点，两个从节点，三个节点均为哨兵节点。配置完成后提交Redis主节点的用户名、密码和IP地址到答题框。
+
+1.配置主机名“
+hostnamectl set-hostname  redis1
+hostnamectl set-hostname  redis2
+hostnamectl set-hostname  redis3
+2.添加主机映射
+vi /etc/hosts
+10.10.0.220 redis1
+10.10.0.162 redis2
+10.10.0.122 redis3
+[root@redis1 ~]# scp /etc/hosts redis2:/etc/hosts
+[root@redis1 ~]# scp /etc/hosts redis3:/etc/hosts
+3.关闭防火墙
+# setenforce 0
+# systemctl stop firewalld
+4.配置yum源并安装redis服务
+[root@redis1 ~]# mv /etc/yum.repos.d/* /media/
+[centos]
+name=centos
+baseurl=ftp://192.168.100.10/centos
+gpgcheck=0
+enabeld=1
+[iaas]
+name=iaas
+baseurl=ftp://192.168.100.10/iaas-repo
+gpgcheck=0
+enabeld=1
+[root@redis1 ~]# yum install -y redis
+5.配置redis一主多从
+1）redis1主机
+[root@redis1 ~]# vi /etc/redis.conf 
+#第一处修改
+# bind 127.0.0.1                     //找到bind 127.0.0.1这行并注释掉
+#第二处修改
+protected-mode yes                   //修改前
+protected-mode no                   //修改后，外部网络可以访问
+# requirepass foobared
+requirepass 123456  								//设置密码
+2) redis2主机
+[root@redis2 ~]# vi /etc/redis.conf 
+#第一处修改
+# bind 127.0.0.1                     //找到bind 127.0.0.1这行并注释掉
+#第二处修改
+protected-mode yes                   //修改前
+protected-mode no                   //修改后，外部网络可以访问
+# slaveof <masterip> <masterport>       //找到该行
+slaveof redis1 6379                 //在下方添加访问的主节点IP与端口
+# masterauth <master-password>
+masterauth 123456                      //设置auth认证
+3)redis3主机
+[root@redis2 ~]# scp /etc/redis.conf redis3:/etc/redis.conf 
+4）启动redis服务
+systemctl enable redis --now
+5）验证是否配置成功
+[root@redis1 ~]# redis-cli 
+127.0.0.1:6379> auth 123456
+OK
+127.0.0.1:6379> info replication
+# Replication
+role:master
+connected_slaves:2
+slave0:ip=10.10.0.162,port=6379,state=online,offset=1,lag=0
+slave1:ip=10.10.0.122,port=6379,state=online,offset=1,lag=0
+master_repl_offset:1
+repl_backlog_active:1
+repl_backlog_size:1048576
+repl_backlog_first_byte_offset:2
+repl_backlog_histlen:0
+[root@redis1 ~]# redis-cli 
+127.0.0.1:6379> auth 123456
+OK
+127.0.0.1:6379> set name xiandian
+OK
+127.0.0.1:6379> 
+
+[root@redis2 ~]# redis-cli 
+127.0.0.1:6379> get name
+"xiandian"
+127.0.0.1:6379>
+
+[root@redis3 ~]# redis-cli 
+127.0.0.1:6379> get name
+"xiandian"
+127.0.0.1:6379> 
+6)配置哨兵模式
+主机redis1
+[root@redis1 ~]# vi /etc/redis-sentinel.conf 
+# protected-mode no								//取消注释
+# bind 127.0.0.1 192.168.1.1			//取消注释并改为
+bind 0.0.0.0
+sentinel monitor mymaster 127.0.0.1 6379 2 //修改为redis1的IP地址
+sentinel monitor mymaster 10.10.0.220 6379 2
+# sentinel auth-pass mymaster MySUPER--secret-0123passw0rd    //修改为
+sentinel auth-pass mymaster 123456
+2）复制配置文件到其他节点
+[root@redis1 ~]# scp /etc/redis-sentinel.conf redis2:/etc/redis-sentinel.conf 
+[root@redis1 ~]# scp /etc/redis-sentinel.conf redis3:/etc/redis-sentinel.conf 
+3）启动并查看哨兵状态
+[root@redis1 ~]# vi /etc/redis-sentinel.conf 
+[root@redis1 ~]# systemctl start redis-sentinel
+[root@redis1 ~]# systemctl status redis-sentinel
+● redis-sentinel.service - Redis Sentinel
+   Loaded: loaded (/usr/lib/systemd/system/redis-sentinel.service; disabled; vendor preset: disabled)
+  Drop-In: /etc/systemd/system/redis-sentinel.service.d
+           └─limit.conf
+   Active: active (running) since Sun 2023-01-08 19:44:50 CST; 51s ago
+ Main PID: 8518 (redis-sentinel)
+   CGroup: /system.slice/redis-sentinel.service
+           └─8518 /usr/bin/redis-sentinel 0.0.0.0:26379 [sentinel]
+
+Jan 08 19:44:50 redis1 systemd[1]: Starting Redis Sentinel...
+Jan 08 19:44:50 redis1 systemd[1]: Started Redis Sentinel.
+[root@redis1 ~]# 
+[root@redis1 ~]# redis-cli -p 26379
+127.0.0.1:26379> info sentinel
+# Sentinel
+sentinel_masters:1
+sentinel_tilt:0
+sentinel_running_scripts:0
+sentinel_scripts_queue_length:0
+sentinel_simulate_failure_flags:0
+master0:name=mymaster,status=ok,address=192.168.200.68:6379,slaves=2,sentinels=3
+127.0.0.1:26379> 
+
+
+26、【实操题】Redis服务调优-AOF（0.5分）
+使用上一题安装的Redis服务。在Redis中，AOF配置为以三种不同的方式在磁盘上执行write或者fsync。假设当前Redis压力过大，请配置Redis不执行fsync。除此之外，避免AOF文件过大，Redis会进行AOF重写，生成缩小的AOF文件。请修改配置，让AOF重写时，不进行fsync操作。配置完成后提交Redis节点的用户名、密码和IP地址到答题框。
+[root@redis1 ~]# vi /etc/redis.conf 
+appendfsync no	   # 将原来的everysec修改为no，表示不执行fsync
+no-appendfsync-on-rewrite yes	# 将原来的no改为yes，表示进行aof重写时不执行fsync
+systemctl restart redis   
