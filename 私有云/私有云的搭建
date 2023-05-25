@@ -1,0 +1,130 @@
+1.配置主机名
+hostnamectl  set-hostname controller
+hostnamectl  set-hostname compute
+
+2.修改/etc/hosts/文件
+vi  /etc/hosts
+192.168.100.10 controller
+192.168.100.100ccompute
+scp /etc/hosts root@controller:/etc/hosts（scp的使用方法） 
+
+3.配置yum源
+1.先删除/etc/yum.repos.d/*下的所有文件
+rm -rf  /etc/yum.repos.d/*
+个人实操的话得创建目录
+mkdir /mnt/centos
+mkdir /mnt/iaas
+挂载
+mount /dev/sr0 /mnt/centos
+mount  chi       /mnt/iaas
+编辑文件/etc/yum.repos.d/http.repo
+vi /etc/yum.repos.d/http.repo
+[centos]
+name=centos
+baseurl=file:///mnt/centos
+baseurl=http://10.18.4.46/centos
+baseurl=ftp://10.18.4.16/centos
+gpgcheck=0
+enabled=1
+[iaas]
+name=iaas
+baseurl=file:///mnt/iaas/iaas-repo
+baseurl=ftp://10.18.4.46/iaas/iaas-repo
+baseurl=http:/10.18.4.46/iaas/iaas-repo
+gpgcheck=0
+enabled=1
+
+4.测试yum源，安装vim，chrony
+yum install -y vim
+ yum install -y net-tools
+netstat -ntlp  //查看是否安装成功
+yum install -y chrony   //安装chrony服务器
+配置时间服务/etc/chrony.conf文件
+vim /etc/chrony.conf     //controller节点
+server controller iburst
+minsources 2
+allow 192.168.100.0/24
+local stratum 10
+配置compute节点时间文件
+vim /etc/chrony.conf
+server controller iburst
+5.配置防火墙
+yum -y install iptables-services
+vi /etc/selinux/config
+SELINUX=permissive
+systemctl stop firewalld.service
+systemctl disable firewalld.service
+systemctl enable iptables
+systemctl restart iptables
+iptables -F
+iptables -X
+iptables -Z
+
+
+
+6.无秘钥传输
+ssh-keygen              //生成秘钥，回显默认回车
+ssh-copy-id controller  // 传输秘钥
+ssh-copy-id compute  // 
+sshcompute  // 尝试链接
+
+7.创建硬盘
+fdisk -l
+n p 	+20G
+n p    +20G
+w 保存退出
+lsblk  查看硬盘是否创建成功
+
+
+
+8.下载iaas-xiandian
+ yum install -y iaas-xiandian  //安装iaas-xiandian软件包
+ vim /etc/xiandian/openrc.sh 
+:%s/PASS=/PASS=000000/g
+:%S/##/@@/g
+#HOST_IP=192.168.100.10 //controller节点IP
+#HOST_NAME=controller // controller节点名
+#HOST_IP_NODE=192.168.100.100  //compute节点名
+#HOST_NAME_NODE=compute   //compute节点名
+#network_segment_IP=192.168.100.10/192.168.100.100  //填他俩的IP
+#RABBIT_USER=openstack  //填openstack
+#DOMAIN_NAME=demo //填demo
+@@metadata secret for neutron. exmaple:000000
+#METADATA_SECRET=000000
+@@Tunnel Network Interface. example:x.x.x.x
+#INTERFACE_IP=000000
+@@The NODE IP for Swift Storage Network. example:x.x.x.x.
+#STORAGE_LOCAL_NET_IP=192.168.100.100  //compute节点的IP
+：%s/#//g   把单个#删除
+:%s/@@/##/g  把##注释掉
+scp /etc/xiandian/openrc.sh  root@compute:/etc/xiandian/openrc.sh   // 把controller的配置给compute配置上
+
+9.执行脚本iaas-pre-host.sh进行安装
+iaas-pre-host.sh 
+10.
+iaas-install-mysql.sh && iaas-install-keystone.sh && iaas-install-glance.sh&&iaas-install-nova-controller.sh && iaas-install-neutron-controller.sh && iaas-install-dashboard.sh&& iaas-install-cinder-controller.sh &&
+ iaas-install-swift-controller.sh&& iaas-install-heat.sh
+compute
+iaas-install-nova-compute.sh  && iaas-install-neutron-compute.sh 
+&& iaas-install-cinder-compute.sh && iaas-install-swift-compute.sh&& 
+11.mysql数据库
+create database test;
+use test;
+create table company( id int(10) not null primary key, name varchar(50), addr varchar(255));
+insert into company(id,name,addr)values(1,"alibaaba","china");
+12.
+【练习9】Cinder创建硬盘
+在控制节点和计算节点分别使用iaas-install-cinder-controller.sh、iaas-install-cinder-compute.sh脚本安装Cinder服务，使用cinder命令创建一个名字叫blockvolume，大小为2G的云硬盘。
+source /etc/keystone/admin-openrc.sh
+cinder type-create blockvolume
+cinder create 2 –name blockvolume --volume-type blockvolume
+13.
+【练习1】镜像管理
+使用自己搭建的openstack云平台，使用http://<IP>/cirros-0.3.4-x86_64-disk.img镜像，使用命令创建一个名为cirros的镜像。
+source /etc/keystone/admin-openrc.sh			
+#刷新配置文件
+glance image-create --name "cirros" --disk-format qcow2 --container-format bare --progress < cirros-0.3.0-x86_64-disk.img			#创建镜像
+14.
+【练习2】heat模板管理
+使用自己搭建的openstack云平台，在/root目录下编写模板server.yaml，创建名为“m1.flavor”、 ID 为 1234、内存为1024MB、硬盘为20GB、vcpu数量为 1的云主机类型。只会一个用命令创建
+openstack flavor create --id 1 --ram 1024 --disk 10 --vcpu 1 m1.flavor
